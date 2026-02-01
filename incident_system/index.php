@@ -1,11 +1,12 @@
 <?php
 require_once 'config.php';
+require_login();
 
+$db = getDB();
+$user = current_user();
 try {
-    $db = getDB();
-
     // Consulta DISTRIBUIDA usando Linked Server
-   $sql = "
+    $baseSql = "
         SELECT 
             i.id,
             i.incident_type,
@@ -13,40 +14,51 @@ try {
             i.status,
             i.detected_at,
             l.name AS lab_name,
-            d.device_type
+            d.device_type,
+            i.lab_id
         FROM incidents i
         LEFT JOIN [INFRA_SERVER].[DB_Infrastructure].[dbo].[labs] l
             ON i.lab_id = l.id
         LEFT JOIN [INFRA_SERVER].[DB_Infrastructure].[dbo].[devices] d
             ON i.device_id = d.id
-        ORDER BY i.detected_at DESC
-        ";
+    ";
 
+    if (($user['role'] ?? '') === 'student') {
+        $sql = $baseSql . " WHERE i.lab_id = ? ORDER BY i.detected_at DESC";
+        $stmt = $db->prepare($sql);
+        $stmt->execute([$user['lab_id'] ?? 0]);
+    } else {
+        $sql = $baseSql . " ORDER BY i.detected_at DESC";
+        $stmt = $db->query($sql);
+    }
 
-    $stmt = $db->query($sql);
     $incidents = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 } catch (PDOException $e) {
     die("Error al obtener los incidentes: " . $e->getMessage());
 }
-?>
-<!DOCTYPE html>
-<html lang="es">
-<head>
-    <meta charset="UTF-8">
-    <title>Sistema de Incidentes Académicos</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-</head>
-<body class="bg-light">
 
-<div class="container mt-5">
+require_once 'header.php';
+?>
+
+<div class="container mt-5 mb-5">
     <div class="d-flex justify-content-between align-items-center mb-4">
-        <h2>Sistema Distribuido de Incidentes Académicos</h2>
-        <a href="create.php" class="btn btn-primary">Registrar Incidente</a>
+        <div>
+            <h2 class="mb-0">
+                <i class="bi bi-exclamation-circle-fill" style="color: #667eea; margin-right: 10px;"></i>
+                Incidentes Registrados
+            </h2>
+            <small class="text-muted">Gestión de incidentes del sistema</small>
+        </div>
+        <a href="create.php" class="btn btn-success">
+            <i class="bi bi-plus-circle"></i> Nuevo Incidente
+        </a>
     </div>
 
-    <table class="table table-bordered table-hover bg-white shadow-sm">
-        <thead class="table-dark">
+    <div class="card shadow">
+        <div class="card-body p-0">
+    <table class="table table-hover mb-0">
+        <thead>
             <tr>
                 <th>ID</th>
                 <th>Laboratorio</th>
@@ -68,23 +80,27 @@ try {
                     <td><?= htmlspecialchars($inc['device_type'] ?? 'N/A') ?></td>
                     <td><?= htmlspecialchars($inc['incident_type']) ?></td>
                     <td>
-                        <span class="badge 
-                            <?= $inc['severity'] === 'HIGH' ? 'bg-danger' : 
-                                ($inc['severity'] === 'MEDIUM' ? 'bg-warning text-dark' : 'bg-success') ?>">
-                            <?= $inc['severity'] ?>
+                        <span class="badge <?= get_badge_class($inc['severity']) ?>">
+                            <?= translate_severity($inc['severity']) ?>
                         </span>
                     </td>
-                    <td><?= $inc['status'] ?></td>
+                    <td><?= translate_status($inc['status']) ?></td>
                     <td><?= date('Y-m-d H:i', strtotime($inc['detected_at'])) ?></td>
                     <td>
+                        <a href="update.php?id=<?= $inc['id'] ?>" 
+                           class="btn btn-sm btn-warning me-2"
+                           title="Editar incidente">
+                            <i class="bi bi-pencil"></i> Editar
+                        </a>
                         <?php if ($inc['status'] === 'OPEN'): ?>
                             <a href="close.php?id=<?= $inc['id'] ?>" 
-                               class="btn btn-sm btn-success"
-                               onclick="return confirm('¿Cerrar este incidente?')">
-                                Cerrar
+                               class="btn btn-sm btn-danger"
+                               onclick="return confirm('¿Cerrar este incidente?')"
+                               title="Cerrar incidente">
+                                <i class="bi bi-check-circle"></i> Cerrar
                             </a>
                         <?php else: ?>
-                            <span class="text-muted">Cerrado</span>
+                            <span class="badge bg-secondary">Cerrado</span>
                         <?php endif; ?>
                     </td>
                 </tr>
@@ -99,7 +115,8 @@ try {
 
         </tbody>
     </table>
+        </div>
+    </div>
 </div>
 
-</body>
-</html>
+<?php require_once 'footer.php'; ?>
